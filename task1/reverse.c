@@ -6,6 +6,7 @@
 #include <sys/syscall.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 const int long_size = sizeof(long);//字长 若本机是64位，则字长应为8字节long
 
@@ -13,6 +14,13 @@ const int long_size = sizeof(long);//字长 若本机是64位，则字长应为8
 * TODO 反转str指针指向的字符串
 **/
 void reverse(char *str){
+	int i, j; 
+	char ch;
+	for (i = 0, j = strlen(str) - 2; i <= j; ++i, --j) {
+		ch = str[i];
+		str[i] = str[j];
+		str[j] = ch;
+	}
 }
 
 /**
@@ -22,6 +30,24 @@ void reverse(char *str){
 * 你可能会用到：memcpy函数
 **/
 void getdata(pid_t child, long addr, char *str, int len){
+	int i = 0, j = len / 8;
+	union u {
+		long v;
+		char ch[8];
+	} res;
+	char *laddr = str;
+	while (i < j) {
+		res.v = ptrace(PTRACE_PEEKDATA, child, addr + 8 * i, NULL);
+		memcpy(laddr, res.ch, 8);
+		++i;
+		laddr += 8;
+	}
+	j = len % 8;
+	if (j) {
+		res.v = ptrace(PTRACE_PEEKDATA, child, addr + 8 * i, NULL);
+		memcpy(laddr, res.ch, j);
+	} 
+	str[len] = '\0';
 }
 
 /**
@@ -29,7 +55,23 @@ void getdata(pid_t child, long addr, char *str, int len){
  * 使用 ptrace 的 PTRACE_POKEDATA 来写，需要注意的是由于64位机器的字长是8byte。
  * */
 void putdata(pid_t child, long addr, char *str, int len){
-
+	int i = 0, j = len / 8;
+	union u {
+		long v;
+		char ch[8];
+	} res;
+	char *laddr = str;
+	while (i < j) {
+		memcpy(res.ch, laddr, 8);
+		ptrace(PTRACE_POKEDATA, child, addr + 8 * i, res.v);
+		++i;
+		laddr += 8;
+	}
+	j = len % 8;
+	if (j) {
+		memcpy(res.ch, laddr, j);	
+		ptrace(PTRACE_POKEDATA, child, addr + 8 * i, res.v);
+	} 
 }
 
 int main(){
@@ -64,6 +106,10 @@ int main(){
           * 需要注意的是，RAX的宏定义是 ORIG_RAX，
           * 而 RDI RSI RDX 的宏定义为 RDI RSI RDX
           **/
+          
+          params[0] = ptrace(PTRACE_PEEKUSER, child, 8 * RDI, NULL);
+          params[1] = ptrace(PTRACE_PEEKUSER, child, 8 * RSI, NULL);
+          params[2] = ptrace(PTRACE_PEEKUSER, child, 8 * RDX, NULL);
           str = (char *)calloc((params[2]+1), sizeof(char));
           getdata(child, params[1], str,
                   params[2]);
@@ -77,6 +123,7 @@ int main(){
     /**
     * TODO 使用 PTRACE_SYSCALL 来让子进程进行系统调用。
     **/
+    	ptrace(PTRACE_SYSCALL, child, NULL, NULL);
     }
   }
   return 0;
